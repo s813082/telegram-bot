@@ -15,6 +15,123 @@
 - [x] 加錯誤處理：對 bot.sendMessage / bot.sendChatAction 加 try-catch
 - [x] 加速率限制：每個使用者每分鐘最多 5 則訊息
 - [x] **單一使用者白名單機制**
+- [x] **修正 Copilot Session 錯誤（Session not found / connection disposed）**
+- [x] **實作 Telegram 圖片讀取功能**
+
+### Session 錯誤修正計畫
+
+**問題分析**：
+- 錯誤訊息：`Request session.send failed with message: Session not found`
+- 根本原因：Copilot session 被遠端回收/過期，或連線中斷，本地仍持有無效 sessionId
+- 影響範圍：長時間未互動後發送訊息會觸發
+
+**解決方案（優先順序）**：
+1. **在 `askCopilot()` 加入錯誤攔截與自動重試**：
+   - 捕捉 "Session not found" 或 "connection got disposed" 錯誤
+   - 從 `sessions` Map 移除失效的 session
+   - 重新建立 session（呼叫 `getOrCreateSession()`）
+   - 重試請求（限制 1 次，避免無限循環）
+   - 若仍失敗，回報友善錯誤給使用者
+
+2. **改進 session 生命週期管理**：
+   - 在 `deleteSession()` 加入安全 dispose 邏輯
+   - dispose 前確保無 pending requests
+   - dispose 後立即從 Map 移除
+
+3. **加強日誌記錄**：
+   - 記錄 sessionId、chatId、操作類型
+   - 記錄 session 建立、重建、dispose 事件
+   - 詳細記錄錯誤類型與堆疊
+
+4. **（可選）加入 session 健康檢查**：
+   - 定期 ping 檢查 session 是否仍有效
+   - 自動清理長時間未使用的 session
+
+5. **✅ Session 重建時注入今日對話上下文**：
+   - 新增 `loadTodayConversations()` 函數讀取今日已發生的對話
+   - 重建 session 後，自動發送系統訊息總結今天稍早的對話
+   - 讓新 session 能接續對話，不會忘記今天發生的事
+   - 避免重複問候或失去對話連續性
+
+**實作檢查清單**：
+- [x] 修改 `src/services/copilot.js` 的 `askCopilot()` 函數
+- [x] 新增 `recreateSessionAndRetry()` 輔助函數（整合在 askCopilot 內）
+- [x] 加強 session 相關日誌
+- [x] **新增 `loadTodayConversations()` 在 session 重建時注入今日對話上下文**
+- [x] **Session 重建後自動發送系統訊息，總結今天稍早的對話**
+- [x] 測試：Bot 啟動正常，等待長時間未使用後發送訊息測試
+- [ ] 測試：實際觸發 session 失效並確認自動重建與上下文注入
+
+### 圖片讀取功能計畫
+
+**需求**：Bot 能接收並處理 Telegram 使用者傳送的圖片
+
+**實作策略（階段性）**：
+
+#### 階段 1：基礎圖片接收與儲存（✅ 已完成）
+- [x] 修改 `src/handlers/message.js` 支援 `msg.photo` 處理
+- [x] 使用 Telegram Bot API 取得圖片 `file_id`
+- [x] 呼叫 `bot.getFile(fileId)` 取得下載路徑
+- [x] 組合完整下載 URL：`https://api.telegram.org/file/bot<TOKEN>/<file_path>`
+- [x] 附加到今日記憶：`appendTodayMemory(chatId, timestamp, summary, ['photo'], importance)`
+- [x] 回應使用者確認收到圖片
+
+#### 階段 2：圖片內容分析（⚠️ SDK 限制）
+
+**現狀：GitHub Copilot SDK 不支援**
+- ❓ 嘗試使用 GPT-4 Vision 但失敗
+- ❌ 錯誤：`400 invalid_request_body`
+- 📝 原因：Copilot SDK 的 `session.sendAndWait()` 不支援 vision API
+- ✅ 目前方案：僅儲存圖片 URL 到記憶
+
+**技術說明**：
+雖然 `gpt-4o` 模型本身支援圖片輸入，但 GitHub Copilot SDK 目前的 session API 不支援傳遞圖片。
+標準的 multimodal API 需要特殊格式：
+```json
+{
+  "role": "user",
+  "content": [
+    { "type": "text", "text": "描述這張圖片" },
+    { "type": "image_url", "image_url": { "url": "https://..." } }
+  ]
+}
+```
+但 Copilot SDK 只接受 `{ prompt: string }` 格式。
+
+**未來方案**：
+1. 等待 GitHub Copilot SDK 更新支援 vision API
+2. 或使用 OpenAI API 直接呼叫（需要額外 API key）
+3. 或整合 OCR 工具（Tesseract.js / Google Vision API）
+
+~~選項 A：**OCR 文字識別**~~
+- 使用 Tesseract.js 或 Google Vision API
+- 提取圖片中的文字內容
+- 將文字加入對話上下文
+
+~~選項 B：**多模態模型分析**（需確認 GitHub Copilot SDK 支援）~~
+- 檢查 SDK 是否支援 vision models（如 GPT-4 Vision）
+- 將圖片 URL 或 base64 傳入模型
+- 讓 AI 直接理解圖片內容
+
+✅ **選項 C：僅儲存圖片 URL**（目前採用）
+- 儲存圖片下載 URL 到記憶檔案
+- 可隨時回顧但不即時分析
+- 適合快速實作與測試
+
+**實作檢查清單（階段 1）**：
+- [x] 修改 `handleMessage()` 移除「只處理文字」的限制
+- [x] 新增 `handlePhotoMessage()` 函數處理圖片邏輯
+- [x] 取得圖片最高解析度版本（`msg.photo[msg.photo.length - 1]`）
+- [x] 建構下載 URL 並記錄到記憶
+- [x] 更新日誌：記錄圖片接收事件
+- [x] 測試：傳送圖片並確認記憶檔案有記錄 URL
+
+**實作檢查清單（階段 2）**：
+- [x] 修改 `handlePhotoMessage()` 整合 Copilot session
+- [x] 將圖片 URL 加入 prompt
+- [x] 支援使用者說明（caption）與無說明情況
+- [x] 儲存完整對話到記憶（包含 URL 與 AI 回應）
+- [x] 測試：傳送圖片並確認 AI 能分析內容
 
 ## 架構改善
 

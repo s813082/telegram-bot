@@ -33,12 +33,73 @@ async function safeSendMessage(bot, chatId, text) {
 }
 
 /**
+ * 處理圖片訊息
+ */
+async function handlePhotoMessage(bot, msg) {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+
+  logger.info(`[handlePhotoMessage] 收到圖片訊息 | User ${userId}`);
+
+  try {
+    // 取得最高解析度的圖片（陣列最後一個）
+    const photo = msg.photo[msg.photo.length - 1];
+    const fileId = photo.file_id;
+
+    logger.debug(`[handlePhotoMessage] 圖片 file_id: ${fileId}`);
+
+    // 取得檔案資訊
+    const file = await bot.getFile(fileId);
+    const fileUrl = `https://api.telegram.org/file/bot${CONFIG.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+
+    logger.info(`[handlePhotoMessage] 圖片 URL: ${fileUrl}`);
+
+    // 儲存到今日記憶
+    const now = new Date();
+    const timestamp = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const summary = `收到圖片: ${fileUrl}`;
+    const caption = msg.caption || "無說明";
+
+    appendTodayMemory(
+      chatId,
+      timestamp,
+      `${summary} | 說明: ${caption}`,
+      ["photo"],
+      3,
+      false
+    );
+
+    logger.info(`[handlePhotoMessage] 圖片已儲存到記憶`);
+
+    // 回應使用者
+    await bot.sendMessage(
+      chatId,
+      `📸 收到圖片！已儲存到記憶中。\n\n說明：${caption}\n\n💡 **關於圖片分析**：\nGitHub Copilot SDK 目前不支援透過 session API 分析圖片內容。\n圖片 URL 已儲存，未來當 SDK 支援 vision API 時將自動啟用分析功能。\n\n🔗 圖片連結：${fileUrl}`
+    );
+  } catch (error) {
+    logger.error(`[handlePhotoMessage] 處理圖片失敗: ${error.message}`);
+    await bot.sendMessage(chatId, "❌ 處理圖片時發生錯誤，請稍後再試。");
+  }
+}
+
+/**
  * 處理一般訊息
  */
 export async function handleMessage(bot, msg) {
   // 跳過指令訊息
-  if (!msg.text || msg.text.startsWith("/")) {
-    logger.debug(`[message] 跳過指令訊息或空訊息`);
+  if (msg.text && msg.text.startsWith("/")) {
+    logger.debug(`[message] 跳過指令訊息`);
+    return;
+  }
+
+  // 處理圖片訊息
+  if (msg.photo && msg.photo.length > 0) {
+    return await handlePhotoMessage(bot, msg);
+  }
+
+  // 若無文字也無圖片，跳過
+  if (!msg.text) {
+    logger.debug(`[message] 跳過非文字非圖片訊息`);
     return;
   }
 

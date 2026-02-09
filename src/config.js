@@ -6,6 +6,9 @@ export const ALLOWED_USER_ID = process.env.ALLOWED_USER_ID;
 
 // ── 應用程式設定 ───────────────────────────────────────
 export const CONFIG = {
+  // Telegram Token（用於圖片下載 URL 組合）
+  TELEGRAM_BOT_TOKEN: TELEGRAM_TOKEN,
+
   // 速率限制
   RATE_LIMIT_MAX_MESSAGES: 5,
   RATE_LIMIT_WINDOW_MS: 60000, // 1 分鐘

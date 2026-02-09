@@ -276,6 +276,36 @@ export async function cleanupOldMemories(userId) {
  * @param {number} userId - 使用者 ID
  * @returns {string} 完整記憶內容
  */
+/**
+ * 讀取今日已發生的對話內容（用於 session 重建時注入上下文）
+ * @param {number} userId - 使用者 ID
+ * @returns {string} 今日對話摘要，若無則返回空字串
+ */
+export function loadTodayConversations(userId) {
+  const todayPath = getTodayFilePath(userId);
+
+  if (!existsSync(todayPath)) {
+    logger.debug(`[loadTodayConversations] 今日檔案不存在`);
+    return "";
+  }
+
+  try {
+    const content = readFileSync(todayPath, "utf-8");
+
+    // 若檔案內容為空或只有標題
+    if (!content || content.trim().length < 50) {
+      logger.debug(`[loadTodayConversations] 今日尚無對話記錄`);
+      return "";
+    }
+
+    logger.info(`[loadTodayConversations] 讀取今日對話記錄 (長度: ${content.length} 字元)`);
+    return content;
+  } catch (error) {
+    logger.error(`[loadTodayConversations] 讀取今日對話失敗: ${error.message}`);
+    return "";
+  }
+}
+
 export function loadAllMemories(userId) {
   logger.debug(`[loadAllMemories] 載入使用者 ${userId} 的記憶`);
 

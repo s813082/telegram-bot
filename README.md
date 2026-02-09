@@ -6,8 +6,10 @@
 
 - 🎀 **傲嬌姊姊人格**：嘴上兇但內心溫柔的 AI 助手
 - 💬 **多輪對話**：每個使用者獨立 session，保持對話記憶
+- 🔄 **Session 自動重建**：長時間未使用後 session 失效時，自動重建並注入今日對話上下文，保持對話連續性
 - 🧠 **三層記憶系統**：短期（Session）、中期（30天）、長期（永久）記憶
 - 🤖 **自動記憶分類**：每日排程自動提煉重要對話到長期記憶
+- 📸 **圖片接收**：支援圖片上傳並儲存 URL（SDK 限制暫不支援內容分析）
 - 🔐 **白名單機制**：僅允許指定 Telegram ID 使用，保護隱私
 - 🔍 **即時查詢**：自動使用工具查詢天氣、檔案等實時資訊
 - 📝 **完整日誌**：Debug 層級日誌，所有訊息流程可追蹤
@@ -85,40 +87,40 @@ flowchart TD
     C -->|否| E[取得 chatId 和訊息內容]
     E --> F[傳送 typing 狀態給使用者]
     F --> G[呼叫 getOrCreateSession chatId]
-    
+
     G --> H{sessions Map<br/>有此 chatId?}
     H -->|有| I[返回現有 session]
     H -->|沒有| J[copilotClient.createSession]
     J --> K[建立新 session<br/>model: gpt-4o<br/>載入 50+ skills]
     K --> L[存入 sessions Map]
     L --> I
-    
+
     I --> M[呼叫 askCopilot session, prompt]
     M --> N[啟動「思考中」定時器<br/>每 30 秒提醒]
     N --> O[session.sendAndWait<br/>timeout: 180秒]
     O --> P[Copilot CLI 處理<br/>使用 skills + tools]
     P --> Q{有回應?}
-    
+
     Q -->|有| R[清除定時器]
     Q -->|沒有| S[返回錯誤訊息]
-    
+
     R --> T{回覆長度<br/>> 4096?}
     S --> T
-    
+
     T -->|否| U[bot.sendMessage<br/>直接傳送]
     T -->|是| V[分段處理<br/>每段 4096 字元]
     V --> W[逐段 bot.sendMessage]
-    
+
     U --> X[完成]
     W --> X
-    
+
     G -.發生錯誤.-> Y[catch 錯誤]
     M -.發生錯誤.-> Y
     O -.發生錯誤.-> Y
     Y --> Z[清理 session<br/>記錄錯誤日誌]
     Z --> AA[bot.sendMessage<br/>錯誤訊息]
     AA --> X
-    
+
     style A fill:#e1f5ff
     style P fill:#fff4e1
     style U fill:#e8f5e9
@@ -141,6 +143,17 @@ flowchart TD
 ### 人格系統
 - **檔案驅動**：SOUL.md（核心）、IDENTITY.md（風格）、USER.md（使用者特質）
 - **自動學習**：排程分析使用習慣並更新 USER.md
+
+### Session 管理
+- **自動重建**：偵測到 session 失效時自動重建
+- **上下文保留**：重建時注入今日對話記錄，保持連續性
+- **錯誤容错**：重試限制 1 次，失敗時友善回報
+
+### 圖片處理
+- **接收與儲存**：支援使用者傳送圖片，自動儲存下載 URL
+- **記憶整合**：圖片 URL 與說明儲存到今日記憶檔案
+- **⚠️ 分析限制**：GitHub Copilot SDK 目前不支援 vision API，無法即時分析圖片內容
+- **未來擴充**：等待 SDK 更新或整合 OCR 工具
 
 ### 安全機制
 - **白名單**：僅允許指定 Telegram User ID 互動

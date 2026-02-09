@@ -1,7 +1,7 @@
 import { CopilotClient } from "@github/copilot-sdk";
 import { CONFIG } from "../config.js";
 import { logger } from "../logger.js";
-import { loadAllMemories } from "./memory.js";
+import { loadAllMemories, loadTodayConversations } from "./memory.js";
 import { getPersonaSystemMessage } from "./persona.js";
 
 // ── 初始化 Copilot Client ─────────────────────────────
@@ -46,10 +46,23 @@ export async function getOrCreateSession(chatId) {
 }
 
 /**
- * 將使用者訊息送到 Copilot，等待回覆
+ * 檢查錯誤是否為 session 失效相關錯誤
  */
-export async function askCopilot(bot, session, prompt, chatId) {
-  logger.debug(`[askCopilot] 進入函數，sessionId: ${session.sessionId}, prompt 長度: ${prompt.length}`);
+function isSessionInvalidError(error) {
+  const message = error.message || "";
+  return (
+    message.includes("Session not found") ||
+    message.includes("connection got disposed") ||
+    message.includes("Pending response rejected")
+  );
+}
+
+/**
+ * 將使用者訊息送到 Copilot，等待回覆
+ * 支援 session 自動重建與重試
+ */
+export async function askCopilot(bot, session, prompt, chatId, retryCount = 0) {
+  logger.debug(`[askCopilot] 進入函數，sessionId: ${session.sessionId}, prompt 長度: ${prompt.length}, 重試次數: ${retryCount}`);
   logger.debug(`[askCopilot] Prompt 內容: ${prompt}`);
 
   let thinkingIntervalId;
@@ -86,7 +99,7 @@ export async function askCopilot(bot, session, prompt, chatId) {
       }
     }, CONFIG.THINKING_UPDATE_INTERVAL_MS);
 
-    logger.info(`[askCopilot] 開始呼叫 session.sendAndWait，timeout: ${CONFIG.COPILOT_TIMEOUT_MS / 1000}秒`);
+    logger.info(`[askCopilot] 開始呼叫 session.sendAndWait，sessionId: ${session.sessionId}, timeout: ${CONFIG.COPILOT_TIMEOUT_MS / 1000}秒`);
     const response = await session.sendAndWait({ prompt }, CONFIG.COPILOT_TIMEOUT_MS);
     logger.debug(`[askCopilot] session.sendAndWait 完成`);
 
@@ -126,6 +139,48 @@ export async function askCopilot(bot, session, prompt, chatId) {
         logger.error(`[askCopilot] [錯誤處理] 刪除思考中訊息失敗: ${err.message}`);
       }
     }
+
+    // 檢查是否為 session 失效錯誤且未達重試上限
+    if (isSessionInvalidError(error) && retryCount === 0) {
+      logger.warn(`[askCopilot] 偵測到 session 失效錯誤，嘗試重建 session 並重試`);
+      logger.warn(`[askCopilot] 錯誤訊息: ${error.message}`);
+
+      // 從 Map 移除失效的 session
+      logger.info(`[askCopilot] 移除失效的 session，chatId: ${chatId}`);
+      deleteSession(chatId);
+
+      try {
+        // 重新建立 session
+        logger.info(`[askCopilot] 重新建立 session，chatId: ${chatId}`);
+        const newSession = await getOrCreateSession(chatId);
+        logger.info(`[askCopilot] Session 重建完成，新 sessionId: ${newSession.sessionId}`);
+
+        // 注入今日對話上下文（讓新 session 知道今天稍早發生的事）
+        const todayConversations = loadTodayConversations(chatId);
+        if (todayConversations) {
+          logger.info(`[askCopilot] 注入今日對話上下文到新 session`);
+          const contextPrompt = `[系統訊息] 由於 session 重建，這是你與使用者今天稍早的對話記錄：\n\n${todayConversations}\n\n請根據以上內容，接續對話。不要重複問候，直接回應使用者的最新訊息。`;
+
+          try {
+            // 先發送上下文（不等待回應）
+            await newSession.send({ prompt: contextPrompt });
+            logger.debug(`[askCopilot] 今日對話上下文已注入`);
+          } catch (contextError) {
+            logger.warn(`[askCopilot] 注入上下文失敗（繼續執行）: ${contextError.message}`);
+          }
+        } else {
+          logger.debug(`[askCopilot] 今日尚無對話記錄，跳過上下文注入`);
+        }
+
+        // 重試請求（retryCount + 1 防止無限重試）
+        logger.info(`[askCopilot] 使用新 session 重試請求`);
+        return await askCopilot(bot, newSession, prompt, chatId, retryCount + 1);
+      } catch (retryError) {
+        logger.error(`[askCopilot] Session 重建或重試失敗: ${retryError.message}`);
+        throw retryError;
+      }
+    }
+
     logger.error(`[askCopilot] 錯誤: ${error.message}`, { stack: error.stack });
     throw error;
   }
@@ -133,9 +188,25 @@ export async function askCopilot(bot, session, prompt, chatId) {
 
 /**
  * 刪除指定 chatId 的 session
+ * 安全地 dispose session 並從 Map 移除
  */
-export function deleteSession(chatId) {
+export async function deleteSession(chatId) {
+  const session = sessions.get(chatId);
+  if (session) {
+    logger.info(`[deleteSession] 準備銷毀 session，chatId: ${chatId}, sessionId: ${session.sessionId}`);
+    try {
+      // 嘗試安全地 dispose session
+      if (typeof session.dispose === 'function') {
+        await session.dispose();
+        logger.debug(`[deleteSession] Session dispose 完成`);
+      }
+    } catch (error) {
+      logger.warn(`[deleteSession] 銷毀 session 時發生錯誤: ${error.message}`);
+      // 即使 dispose 失敗也要從 Map 移除，避免持續使用失效 session
+    }
+  }
   sessions.delete(chatId);
+  logger.info(`[deleteSession] Session 已從 Map 移除，chatId: ${chatId}`);
 }
 
 /**

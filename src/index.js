@@ -1,10 +1,11 @@
 import TelegramBot from "node-telegram-bot-api";
-import { TELEGRAM_TOKEN, validateConfig } from "./config.js";
+import { ALLOWED_USER_ID, TELEGRAM_TOKEN, validateConfig } from "./config.js";
 import { handleNew, handleStart } from "./handlers/commands.js";
 import { handleMessage } from "./handlers/message.js";
 import { logger } from "./logger.js";
 import { startRateLimitCleanup } from "./middleware/rateLimit.js";
 import { copilotClient, getAllSessions } from "./services/copilot.js";
+import { startMemoryClassificationScheduler } from "./services/scheduler.js";
 
 // ── 驗證設定 ──────────────────────────────────────────
 validateConfig(logger);
@@ -16,6 +17,10 @@ logger.info("Telegram Bot 初始化完成");
 
 // ── 啟動記憶體清理排程 ────────────────────────────────
 startRateLimitCleanup();
+
+// ── 啟動記憶分類排程 ──────────────────────────────────
+logger.info(`啟動記憶分類排程 | 允許的使用者 ID: ${ALLOWED_USER_ID}`);
+startMemoryClassificationScheduler(Number(ALLOWED_USER_ID));
 
 // ── Telegram 指令處理 ─────────────────────────────────
 bot.onText(/\/start/, (msg) => handleStart(bot, msg));

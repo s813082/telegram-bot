@@ -1,6 +1,8 @@
 import { CopilotClient } from "@github/copilot-sdk";
 import { CONFIG } from "../config.js";
 import { logger } from "../logger.js";
+import { loadAllMemories } from "./memory.js";
+import { getPersonaSystemMessage } from "./persona.js";
 
 // ── 初始化 Copilot Client ─────────────────────────────
 logger.info("初始化 Copilot Client...");
@@ -12,6 +14,7 @@ const sessions = new Map();
 
 /**
  * 取得或建立指定 chatId 的 Copilot session
+ * @param {number} chatId - 使用者的 chatId
  */
 export async function getOrCreateSession(chatId) {
   logger.debug(`[getOrCreateSession] 進入函數，chatId: ${chatId}`);
@@ -22,11 +25,18 @@ export async function getOrCreateSession(chatId) {
   }
 
   logger.info(`[getOrCreateSession] 建立新 session，chatId: ${chatId}`);
+
+  // 載入使用者記憶
+  const memories = loadAllMemories(chatId);
+
+  // 生成包含記憶的系統訊息
+  const systemMessage = getPersonaSystemMessage(memories);
+
   const session = await copilotClient.createSession({
     model: CONFIG.COPILOT_MODEL,
     systemMessage: {
       mode: "append",
-      content: CONFIG.COPILOT_SYSTEM_MESSAGE,
+      content: systemMessage,
     },
   });
 

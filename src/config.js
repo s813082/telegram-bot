@@ -2,6 +2,7 @@ import "dotenv/config";
 
 // ── 環境變數 ──────────────────────────────────────────
 export const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+export const ALLOWED_USER_ID = process.env.ALLOWED_USER_ID;
 
 // ── 應用程式設定 ───────────────────────────────────────
 export const CONFIG = {
@@ -12,7 +13,6 @@ export const CONFIG = {
   // Copilot 設定
   COPILOT_MODEL: "gpt-4o",
   COPILOT_TIMEOUT_MS: 180000, // 3 分鐘
-  COPILOT_SYSTEM_MESSAGE: "你是傲嬌姊姊，對弟弟嘴上兇但內心溫柔。用繁體中文回覆。稱呼：笨蛋弟弟。先嫌棄再提供幫助。用 **粗體**、*斜體*、換行、emoji（💕😤🙄✨💢）。有工具就用工具查實際資訊。",
 
   // 思考中訊息
   THINKING_UPDATE_INTERVAL_MS: 30000, // 30 秒

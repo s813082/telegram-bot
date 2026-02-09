@@ -6,6 +6,9 @@
 
 - 🎀 **傲嬌姊姊人格**：嘴上兇但內心溫柔的 AI 助手
 - 💬 **多輪對話**：每個使用者獨立 session，保持對話記憶
+- 🧠 **三層記憶系統**：短期（Session）、中期（30天）、長期（永久）記憶
+- 🤖 **自動記憶分類**：每日排程自動提煉重要對話到長期記憶
+- 🔐 **白名單機制**：僅允許指定 Telegram ID 使用，保護隱私
 - 🔍 **即時查詢**：自動使用工具查詢天氣、檔案等實時資訊
 - 📝 **完整日誌**：Debug 層級日誌，所有訊息流程可追蹤
 - ⏱️ **思考提示**：每 30 秒提醒使用者 Bot 正在處理中
@@ -31,11 +34,14 @@ npm install
 cp .env.example .env
 ```
 
-2. 編輯 `.env`，填入你的 Telegram Bot Token：
+2. 編輯 `.env`，填入你的設定：
 
 ```env
 TELEGRAM_BOT_TOKEN=你的-telegram-bot-token
+ALLOWED_USER_ID=你的-telegram-user-id
 ```
+
+> **提示**：取得你的 Telegram User ID，可使用 [@userinfobot](https://t.me/userinfobot)
 
 ## 執行
 
@@ -126,6 +132,20 @@ flowchart TD
 ### 預設模型
 - **GPT-4o**
 
+### 記憶系統
+- **短期記憶**：Copilot Session（當前對話）
+- **中期記憶**：每日 Markdown 檔案（30 天保留期）
+- **長期記憶**：永久 profile.md（重要事件與決策）
+- **自動分類**：每日排程提煉重要對話到長期記憶
+
+### 人格系統
+- **檔案驅動**：SOUL.md（核心）、IDENTITY.md（風格）、USER.md（使用者特質）
+- **自動學習**：排程分析使用習慣並更新 USER.md
+
+### 安全機制
+- **白名單**：僅允許指定 Telegram User ID 互動
+- **速率限制**：每分鐘最多 5 則訊息
+
 ### 日誌系統
 - Console 輸出 + 檔案記錄
 - 檔案位置：
@@ -146,14 +166,35 @@ flowchart TD
 ```
 telegram-bot/
 ├── src/
-│   └── index.js          # 主程式
-├── logs/                 # 日誌檔案（git ignored）
+│   ├── index.js              # 主程式入口
+│   ├── config.js             # 設定檔（含白名單）
+│   ├── logger.js             # 日誌系統
+│   ├── handlers/
+│   │   ├── commands.js       # 指令處理
+│   │   └── message.js        # 訊息處理（含白名單檢查）
+│   ├── middleware/
+│   │   └── rateLimit.js      # 速率限制
+│   └── services/
+│       ├── copilot.js        # Copilot SDK 整合
+│       ├── memory.js         # 記憶系統
+│       ├── persona.js        # 人格系統
+│       └── scheduler.js      # 記憶分類排程
+├── persona/                  # 人格檔案（檔案驅動）
+│   ├── SOUL.md              # Bot 核心性格
+│   ├── IDENTITY.md          # Bot 身份風格
+│   ├── AGENTS.md            # 操作指南
+│   └── USER.md              # 使用者人格（自動更新）
+├── memory/                   # 記憶檔案
+│   └── {userId}/
+│       ├── profile.md       # 長期記憶
+│       └── yyyy-mm-dd.md    # 每日對話記錄
+├── logs/                     # 日誌檔案（git ignored）
 │   ├── combined.log
 │   └── error.log
-├── .env                  # 環境變數（git ignored）
-├── .env.example          # 環境變數範本
+├── .env                      # 環境變數（git ignored）
+├── .env.example              # 環境變數範本
 ├── package.json
-├── .gitignore
+├── plan.md                   # 開發計畫
 └── README.md
 ```
 

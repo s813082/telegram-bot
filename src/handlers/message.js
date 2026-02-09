@@ -1,7 +1,15 @@
-import { CONFIG } from "../config.js";
+import { ALLOWED_USER_ID, CONFIG } from "../config.js";
 import { logger } from "../logger.js";
 import { checkRateLimit } from "../middleware/rateLimit.js";
 import { askCopilot, deleteSession, getOrCreateSession, getSession } from "../services/copilot.js";
+import { appendTodayMemory } from "../services/memory.js";
+
+/**
+ * 檢查使用者是否在白名單中
+ */
+function isAllowedUser(userId) {
+  return String(userId) === String(ALLOWED_USER_ID);
+}
 
 /**
  * 安全發送 Telegram 訊息，支援 Markdown 格式並有 fallback
@@ -35,7 +43,14 @@ export async function handleMessage(bot, msg) {
   }
 
   const chatId = msg.chat.id;
+  const userId = msg.from.id;
   const userText = msg.text;
+
+  // 白名單檢查
+  if (!isAllowedUser(userId)) {
+    logger.warn(`[message] 拒絕非白名單使用者 | User ${userId} (${msg.from.first_name || "Unknown"})`);
+    return; // 不回應，直接忽略
+  }
 
   logger.info(`[message] ═══════════════════════════════════════`);
   logger.info(`[message] 收到訊息 | User ${chatId}: ${userText}`);
@@ -88,6 +103,25 @@ export async function handleMessage(bot, msg) {
         await safeSendMessage(bot, chatId, chunks[i]);
       }
       logger.debug(`[message] 所有分段發送完成`);
+    }
+
+    // 儲存對話記憶
+    try {
+      const now = new Date();
+      const timestamp = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+      // 簡單摘要（取前 100 字元）
+      const summary = `使用者: ${userText.substring(0, 50)}${userText.length > 50 ? "..." : ""} | 回應: ${reply.substring(0, 50)}${reply.length > 50 ? "..." : ""}`;
+
+      // 檢測關鍵字來判斷重要性
+      const isImportant = userText.includes("記住") || userText.includes("重要") || userText.includes("別忘了");
+      const importance = isImportant ? 5 : 3;
+
+      appendTodayMemory(chatId, timestamp, summary, [], importance, isImportant);
+      logger.debug(`[message] 對話記憶已儲存`);
+    } catch (memoryError) {
+      logger.error(`[message] 儲存記憶失敗: ${memoryError.message}`);
+      // 不影響主流程，繼續執行
     }
 
     logger.info(`[message] 訊息處理完成`);

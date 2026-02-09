@@ -3,6 +3,7 @@ import { CONFIG } from "../config.js";
 import { logger } from "../logger.js";
 import { loadAllMemories, loadTodayConversations } from "./memory.js";
 import { getPersonaSystemMessage } from "./persona.js";
+import { incrementSessionCount } from "./stats.js";
 
 // ── 初始化 Copilot Client ─────────────────────────────
 logger.info("初始化 Copilot Client...");
@@ -42,6 +43,10 @@ export async function getOrCreateSession(chatId) {
 
   logger.debug(`[getOrCreateSession] Session 建立完成，sessionId: ${session.sessionId}`);
   sessions.set(chatId, session);
+  
+  // 追蹤 session 建立次數
+  incrementSessionCount(chatId);
+  
   return session;
 }
 

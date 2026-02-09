@@ -1,11 +1,12 @@
 import TelegramBot from "node-telegram-bot-api";
 import { ALLOWED_USER_ID, TELEGRAM_TOKEN, validateConfig } from "./config.js";
-import { handleNew, handleStart } from "./handlers/commands.js";
+import { handleCallbackQuery } from "./handlers/callbacks.js";
+import { handleExport, handleHelp, handleMenu, handleNew, handleProcessMemory, handleSettings, handleStart, handleStats, handleStatus } from "./handlers/commands.js";
 import { handleMessage } from "./handlers/message.js";
 import { logger } from "./logger.js";
 import { startRateLimitCleanup } from "./middleware/rateLimit.js";
 import { copilotClient, getAllSessions } from "./services/copilot.js";
-import { startMemoryClassificationScheduler } from "./services/scheduler.js";
+import { startFiveStarMemoryScheduler, startMemoryClassificationScheduler } from "./services/scheduler.js";
 
 // ── 驗證設定 ──────────────────────────────────────────
 validateConfig(logger);
@@ -22,9 +23,23 @@ startRateLimitCleanup();
 logger.info(`啟動記憶分類排程 | 允許的使用者 ID: ${ALLOWED_USER_ID}`);
 startMemoryClassificationScheduler(Number(ALLOWED_USER_ID));
 
+// ── 啟動五顆星記憶處理排程 ────────────────────────────
+logger.info(`啟動五顆星記憶處理排程`);
+startFiveStarMemoryScheduler(Number(ALLOWED_USER_ID));
+
 // ── Telegram 指令處理 ─────────────────────────────────
 bot.onText(/\/start/, (msg) => handleStart(bot, msg));
 bot.onText(/\/new/, (msg) => handleNew(bot, msg));
+bot.onText(/\/menu/, (msg) => handleMenu(bot, msg));
+bot.onText(/\/help/, (msg) => handleHelp(bot, msg));
+bot.onText(/\/status/, (msg) => handleStatus(bot, msg));
+bot.onText(/\/stats/, (msg) => handleStats(bot, msg));
+bot.onText(/\/export/, (msg) => handleExport(bot, msg));
+bot.onText(/\/settings/, (msg) => handleSettings(bot, msg));
+bot.onText(/\/process_memory/, (msg) => handleProcessMemory(bot, msg));
+
+// ── Callback Query 處理 ───────────────────────────────
+bot.on("callback_query", (query) => handleCallbackQuery(bot, query));
 
 // ── 處理一般訊息 ──────────────────────────────────────
 bot.on("message", (msg) => handleMessage(bot, msg));

@@ -3,6 +3,7 @@ import { logger } from "../logger.js";
 import { checkRateLimit } from "../middleware/rateLimit.js";
 import { askCopilot, deleteSession, getOrCreateSession, getSession } from "../services/copilot.js";
 import { appendTodayMemory } from "../services/memory.js";
+import { incrementMessageCount } from "../services/stats.js";
 
 /**
  * 檢查使用者是否在白名單中
@@ -117,6 +118,9 @@ export async function handleMessage(bot, msg) {
   logger.info(`[message] 收到訊息 | User ${chatId}: ${userText}`);
   logger.debug(`[message] 訊息詳細資訊: ${JSON.stringify(msg, null, 2)}`);
 
+  // 追蹤訊息數量
+  incrementMessageCount(userId);
+
   // 檢查速率限制
   if (!checkRateLimit(chatId)) {
     logger.warn(`[message] 使用者 ${chatId} 超過速率限制，拒絕處理`);
@@ -174,12 +178,14 @@ export async function handleMessage(bot, msg) {
       // 簡單摘要（取前 100 字元）
       const summary = `使用者: ${userText.substring(0, 50)}${userText.length > 50 ? "..." : ""} | 回應: ${reply.substring(0, 50)}${reply.length > 50 ? "..." : ""}`;
 
-      // 檢測關鍵字來判斷重要性
+      // AI 應該在 reply 中自主判斷重要性
+      // 這裡設定預設值，實際上應該由 AI 在回應時決定
+      // TODO: 未來可以讓 AI 在 system message 中回傳重要性判斷
       const isImportant = userText.includes("記住") || userText.includes("重要") || userText.includes("別忘了");
       const importance = isImportant ? 5 : 3;
 
       appendTodayMemory(chatId, timestamp, summary, [], importance, isImportant);
-      logger.debug(`[message] 對話記憶已儲存`);
+      logger.debug(`[message] 對話記憶已儲存 (重要性: ${importance})`);
     } catch (memoryError) {
       logger.error(`[message] 儲存記憶失敗: ${memoryError.message}`);
       // 不影響主流程，繼續執行
@@ -204,12 +210,38 @@ export async function handleMessage(bot, msg) {
     }
 
     try {
-      await bot.sendMessage(
-        chatId,
-        "❌ 處理訊息時發生錯誤，請稍後再試，或輸入 /new 開啟新對話。"
-      );
+      const { getErrorRetryButton } = await import("../keyboards/quickReplies.js");
+
+      // 友善的錯誤訊息
+      const errorMessage = `
+❌ **處理訊息時發生錯誤**
+
+抱歉，無法處理你的訊息。
+
+💡 **建議解決方案：**
+• 點選下方「重試」按鈕
+• 使用 /new 開始新對話
+• 稍後再試一次
+
+🔍 錯誤詳情：
+\`${error.message}\`
+      `.trim();
+
+      await bot.sendMessage(chatId, errorMessage, {
+        parse_mode: "Markdown",
+        reply_markup: getErrorRetryButton(),
+      });
     } catch (sendError) {
-      logger.error(`[message] [錯誤處理] 發送錯誤訊息失敗: ${sendError.message}`);
+      logger.error(`[message] 發送錯誤訊息失敗: ${sendError.message}`);
+      // 如果 Markdown 失敗，嘗試純文字
+      try {
+        await bot.sendMessage(
+          chatId,
+          "❌ 處理訊息時發生錯誤，請稍後再試，或輸入 /new 開啟新對話。"
+        );
+      } catch (finalError) {
+        logger.error(`[message] 最終錯誤訊息發送失敗: ${finalError.message}`);
+      }
     }
   }
 }

@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "fs";
 import cron from "node-cron";
 import { join } from "path";
 import { logger } from "../logger.js";
-import { getProfilePath, getUserDir } from "./memory.js";
+import { getUserDir, processFiveStarMemories } from "./memory.js";
 
 /**
  * 分析中期記憶並提取重要資訊
@@ -78,39 +78,6 @@ function analyzeMemoryFile(userId, dateStr) {
   );
 
   return { importantMemories, patterns };
-}
-
-/**
- * 更新長期記憶檔案 (profile.md)
- * @param {number} userId - 使用者 ID
- * @param {Array} memories - 重要記憶陣列
- */
-function updateLongTermMemory(userId, memories) {
-  if (memories.length === 0) {
-    logger.debug(`[updateLongTermMemory] 沒有新的重要記憶需要更新`);
-    return;
-  }
-
-  const profilePath = getProfilePath(userId);
-  let content = "";
-
-  if (existsSync(profilePath)) {
-    content = readFileSync(profilePath, "utf-8");
-  } else {
-    content = `# 長期記憶檔案\n\n## 重要對話記錄\n\n`;
-  }
-
-  // 附加新的重要記憶
-  for (const memory of memories) {
-    const entry = `\n### ${memory.date} ${memory.time} - ${memory.title}\n`;
-    const detail = `- 摘要：${memory.summary}\n`;
-    const importance = `- 重要性：${"⭐".repeat(memory.importance)}\n`;
-
-    content += entry + detail + importance;
-  }
-
-  writeFileSync(profilePath, content, "utf-8");
-  logger.info(`[updateLongTermMemory] 已更新 profile.md，新增 ${memories.length} 則重要記憶`);
 }
 
 /**
@@ -263,12 +230,15 @@ export async function runMemoryClassification(userId) {
       `[MemoryClassification] 累積分析完成: ${allPatterns.totalMessages} 則對話, ${allImportantMemories.length} 則重要記憶`
     );
 
-    // 更新長期記憶
+    // ⚠️ 不直接寫入長期記憶，交由 processFiveStarMemories 處理（會使用 AI 生成自然語言）
+    // 這樣可以確保所有長期記憶都是經過 AI 改寫的自然語言描述
     if (allImportantMemories.length > 0) {
-      updateLongTermMemory(userId, allImportantMemories);
+      logger.info(
+        `[MemoryClassification] 發現 ${allImportantMemories.length} 則重要記憶，將由五顆星記憶排程處理`
+      );
     }
 
-    // 更新使用者人格檔案
+    // 更新使用者人格檔案（保留此功能）
     if (allPatterns.totalMessages > 0) {
       updateUserPersona(userId, allPatterns);
     }
@@ -297,4 +267,25 @@ export function startMemoryClassificationScheduler(userId) {
 
   // 啟動時立即執行一次（可選）
   // runMemoryClassification(userId);
+}
+
+/**
+ * 啟動五顆星記憶處理排程
+ * @param {number} userId - 使用者 ID
+ */
+export function startFiveStarMemoryScheduler(userId) {
+  // 每 5 分鐘檢查一次五顆星記憶
+  // 正式模式可改為: '*/30 * * * *' (每 30 分鐘) 或 '0 */2 * * *' (每 2 小時)
+  const schedule = "*/5 * * * *";
+
+  logger.info(`[Scheduler] 啟動五顆星記憶處理排程: ${schedule}`);
+
+  cron.schedule(schedule, async () => {
+    logger.info(`[Scheduler] 執行五顆星記憶處理`);
+    try {
+      await processFiveStarMemories(userId);
+    } catch (error) {
+      logger.error(`[Scheduler] 五顆星記憶處理失敗: ${error.message}`);
+    }
+  });
 }
